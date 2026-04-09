@@ -46,3 +46,7 @@ uninlined_format_args = "deny"
 
 [workspace.lints.rustdoc]
 broken_intra_doc_links = "deny"
+
+[patch.crates-io]
+# Hyper 1.10.1 plus goaway fixes
+hyper = { git = "https://github.com/flokli/hyper.git", rev = "554050c2ac5057110dc76a71022d7f6a7a8c9e2e" }
