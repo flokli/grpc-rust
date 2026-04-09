@@ -10,11 +10,11 @@ type BoxBody = http_body_util::combinators::UnsyncBoxBody<bytes::Bytes, crate::S
 /// A body type used in `tonic`.
 #[derive(Debug)]
 pub struct Body {
-    kind: Kind,
+    pub(crate) kind: Kind,
 }
 
 #[derive(Debug)]
-enum Kind {
+pub(crate) enum Kind {
     Empty,
     Wrap(BoxBody),
 }

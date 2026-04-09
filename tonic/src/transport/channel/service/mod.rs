@@ -20,6 +20,9 @@ use self::io::BoxedIo;
 mod connector;
 pub(crate) use self::connector::Connector;
 
+mod goaway_retry;
+pub(super) use self::goaway_retry::GoawayRetry;
+
 mod executor;
 pub(super) use self::executor::{Executor, SharedExec};
 

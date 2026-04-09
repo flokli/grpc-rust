@@ -11,7 +11,7 @@ pub use endpoint::Endpoint;
 #[cfg(feature = "_tls-any")]
 pub use tls::ClientTlsConfig;
 
-use self::service::{Connection, DynamicServiceStream, Executor, SharedExec};
+use self::service::{Connection, DynamicServiceStream, Executor, GoawayRetry, SharedExec};
 use crate::body::Body;
 use bytes::Bytes;
 use http::{
@@ -29,14 +29,11 @@ use tokio::sync::mpsc::{Sender, channel};
 
 use hyper::rt;
 use tower::balance::p2c::Balance;
-use tower::{
-    Service,
-    buffer::{Buffer, future::ResponseFuture as BufferResponseFuture},
-    discover::Discover,
-    util::BoxService,
-};
+use tower::{Service, buffer::Buffer, discover::Discover, util::BoxService};
 
 type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
+type InnerBuffer =
+    Buffer<Request<Body>, BoxFuture<'static, Result<Response<Body>, crate::BoxError>>>;
 
 const DEFAULT_BUFFER_SIZE: usize = 1024;
 
@@ -65,14 +62,14 @@ const DEFAULT_BUFFER_SIZE: usize = 1024;
 /// cloning the `Channel` type is cheap and encouraged.
 #[derive(Clone)]
 pub struct Channel {
-    svc: Buffer<Request<Body>, BoxFuture<'static, Result<Response<Body>, crate::BoxError>>>,
+    svc: GoawayRetry<InnerBuffer>,
 }
 
 /// A future that resolves to an HTTP response.
 ///
 /// This is returned by the `Service::call` on [`Channel`].
 pub struct ResponseFuture {
-    inner: BufferResponseFuture<BoxFuture<'static, Result<Response<Body>, crate::BoxError>>>,
+    inner: BoxFuture<'static, Result<Response<Body>, crate::BoxError>>,
 }
 
 impl Channel {
@@ -160,9 +157,9 @@ impl Channel {
 
         let svc = Connection::lazy(connector, endpoint);
         let (svc, worker) = Buffer::pair(svc, buffer_size);
-
         executor.execute(worker);
 
+        let svc = GoawayRetry::new(svc);
         Channel { svc }
     }
 
@@ -185,6 +182,7 @@ impl Channel {
         let (svc, worker) = Buffer::pair(svc, buffer_size);
         executor.execute(worker);
 
+        let svc = GoawayRetry::new(svc);
         Ok(Channel { svc })
     }
 
@@ -201,6 +199,7 @@ impl Channel {
         let (svc, worker) = Buffer::pair(svc, buffer_size);
         executor.execute(Box::pin(worker));
 
+        let svc = GoawayRetry::new(svc);
         Channel { svc }
     }
 }
@@ -225,7 +224,8 @@ impl Future for ResponseFuture {
     type Output = Result<Response<Body>, super::Error>;
 
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        Pin::new(&mut self.inner)
+        self.inner
+            .as_mut()
             .poll(cx)
             .map_err(super::Error::from_source)
     }
